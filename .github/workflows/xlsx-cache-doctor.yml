@@ -1,0 +1,53 @@
+name: XLSX Cache Doctor
+
+on:
+  pull_request:
+    paths:
+      - "fixtures/**/*.xlsx"
+      - "reports/**/*.json"
+      - ".github/workflows/xlsx-cache-doctor.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  xlsx-cache-doctor:
+    name: Detect stale XLSX formula caches
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Inspect changed XLSX workbooks
+        id: doctor
+        uses: proompteng/bilig@v1
+        with:
+          workbooks: "fixtures/**/*.xlsx"
+          changed-files-only: "true"
+          json-output: "${{ runner.temp }}/stale-pricing.cache-doctor.json"
+          fail-on-stale: "false"
+
+      - name: Prove the demo detected the stale cache
+        env:
+          WORKBOOK_COUNT: "${{ steps.doctor.outputs.workbook-count }}"
+          FORMULA_COUNT: "${{ steps.doctor.outputs.formula-count }}"
+          STALE_COUNT: "${{ steps.doctor.outputs.stale-count }}"
+          REPORT_PATH: "${{ steps.doctor.outputs.json }}"
+        run: |
+          set -euo pipefail
+          test "$WORKBOOK_COUNT" = "1"
+          test "$FORMULA_COUNT" = "60"
+          test "$STALE_COUNT" = "1"
+          jq -e '.staleCachedFormulaCount == 1' "$REPORT_PATH" >/dev/null
+          jq -e '.formulaCellCount == 60' "$REPORT_PATH" >/dev/null
+          jq -e '.inspectedFormulaCellCount == 60' "$REPORT_PATH" >/dev/null
+          jq -e '.inspectionCompleted == true' "$REPORT_PATH" >/dev/null
+          printf 'Demo proof: %s workbook, %s formulas, %s stale cached formula value.\n' "$WORKBOOK_COUNT" "$FORMULA_COUNT" "$STALE_COUNT"
+
+      - name: Upload cache-doctor JSON report
+        uses: actions/upload-artifact@v4
+        with:
+          name: stale-pricing-cache-doctor-report
+          path: "${{ steps.doctor.outputs.json }}"
+          if-no-files-found: error
